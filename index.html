@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>6 7 Motion Counter V2.1</title>
+  <title>6 7 Motion Counter V3</title>
 
   <style>
     :root {
@@ -50,7 +50,7 @@
 
     .subtitle {
       margin: 8px auto 0;
-      max-width: 720px;
+      max-width: 760px;
       color: var(--muted);
       font-size: clamp(0.95rem, 2.5vw, 1.1rem);
       line-height: 1.45;
@@ -65,7 +65,7 @@
 
     .camera-card,
     .panel {
-      background: rgba(255, 255, 255, 0.9);
+      background: rgba(255, 255, 255, 0.92);
       border: 1px solid var(--border);
       border-radius: 24px;
       box-shadow: 0 18px 50px rgba(37, 99, 235, 0.12);
@@ -125,12 +125,18 @@
       font-weight: 800;
     }
 
-    .status {
+    .status,
+    .confidence-card,
+    .debug-card,
+    .control-card {
       border: 1px solid var(--border);
       border-radius: 18px;
       padding: 14px;
       margin-bottom: 14px;
       background: #f8fbff;
+    }
+
+    .status {
       min-height: 78px;
     }
 
@@ -144,15 +150,10 @@
       line-height: 1.4;
     }
 
-    .confidence-card {
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 14px;
-      margin-bottom: 14px;
-      background: #ffffff;
-    }
-
-    .confidence-row {
+    .confidence-row,
+    .slider-row,
+    .toggle-row,
+    .debug-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -176,6 +177,46 @@
       transition: width 0.16s linear, background 0.16s linear;
     }
 
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--blue);
+    }
+
+    .meter-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .arm-meter {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 10px;
+    }
+
+    .arm-title {
+      font-size: 0.85rem;
+      font-weight: 800;
+      margin-bottom: 8px;
+      color: var(--muted);
+    }
+
+    .mini-track {
+      height: 10px;
+      border-radius: 999px;
+      background: #e5e7eb;
+      overflow: hidden;
+    }
+
+    .mini-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--blue);
+      border-radius: 999px;
+      transition: width 0.08s linear;
+    }
+
     .steps {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -190,7 +231,7 @@
       padding: 10px 8px;
       text-align: center;
       color: var(--muted);
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 700;
     }
 
@@ -227,6 +268,11 @@
       transform: scale(0.98);
     }
 
+    button:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+
     .primary {
       background: var(--blue);
       color: white;
@@ -247,10 +293,6 @@
 
     .toggle-row {
       margin-top: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
       color: var(--muted);
       font-size: 0.95rem;
     }
@@ -305,6 +347,13 @@
       line-height: 1.45;
     }
 
+    .small {
+      color: var(--muted);
+      font-size: 0.86rem;
+      line-height: 1.4;
+      margin-top: 8px;
+    }
+
     @media (max-width: 850px) {
       body {
         padding: 12px;
@@ -328,9 +377,9 @@
 <body>
   <main class="app">
     <header>
-      <h1>6 7 Motion Counter V2.1</h1>
+      <h1>6 7 Motion Counter V3</h1>
       <p class="subtitle">
-        Raise your right hand, then raise your left hand. This version is more forgiving and does not require a perfect down-up-down cycle.
+        Movement-based detection: the counter only increases when it sees a real upward arm strike, then an opposite-arm strike. Holding your hands up should not keep adding points.
       </p>
     </header>
 
@@ -340,7 +389,7 @@
           <video id="webcam" autoplay playsinline muted></video>
           <canvas id="canvas"></canvas>
           <div id="placeholder" class="camera-placeholder">
-            Click Start Camera, allow permission, then stand so your upper body is visible.
+            Click Start Camera, allow permission, then keep your shoulders, elbows, and wrists visible.
           </div>
         </div>
       </div>
@@ -352,7 +401,7 @@
         </div>
 
         <div class="status">
-          <div class="status-title">Current Step</div>
+          <div class="status-title">Current Status</div>
           <div id="statusText" class="status-text">Waiting to start.</div>
         </div>
 
@@ -366,10 +415,36 @@
           </div>
         </div>
 
+        <div class="control-card">
+          <div class="slider-row">
+            <span>Sensitivity</span>
+            <span id="sensitivityText">6</span>
+          </div>
+          <input id="sensitivitySlider" type="range" min="1" max="10" value="6" />
+          <div class="small">Higher = catches smaller/faster motions. Lower = fewer false counts.</div>
+        </div>
+
+        <div class="debug-card">
+          <div class="debug-row">
+            <span>Live Arm Signal</span>
+            <span id="pendingText">None</span>
+          </div>
+          <div class="meter-grid">
+            <div class="arm-meter">
+              <div class="arm-title">Left</div>
+              <div class="mini-track"><div id="leftFill" class="mini-fill"></div></div>
+            </div>
+            <div class="arm-meter">
+              <div class="arm-title">Right</div>
+              <div class="mini-track"><div id="rightFill" class="mini-fill"></div></div>
+            </div>
+          </div>
+        </div>
+
         <div class="steps">
-          <div id="step0" class="step active">1. Right Up</div>
-          <div id="step1" class="step">2. Left Up</div>
-          <div id="step2" class="step">3. Counted</div>
+          <div id="step0" class="step active">1. Arm Strike</div>
+          <div id="step1" class="step">2. Opposite Strike</div>
+          <div id="step2" class="step">3. Count</div>
         </div>
 
         <div class="buttons">
@@ -386,7 +461,7 @@
         </div>
 
         <p class="tips">
-          Tip: good lighting and a clear view of your shoulders and wrists makes the counter much more accurate.
+          Tip: compact, repeatable arm pumps work better than huge windmill motions. If it misses fast reps, raise sensitivity one step.
         </p>
       </aside>
     </section>
@@ -407,11 +482,16 @@
     const startButton = document.getElementById("startButton");
     const resetButton = document.getElementById("resetButton");
     const soundToggle = document.getElementById("soundToggle");
+    const sensitivitySlider = document.getElementById("sensitivitySlider");
+    const sensitivityText = document.getElementById("sensitivityText");
 
     const countNumber = document.getElementById("countNumber");
     const statusText = document.getElementById("statusText");
     const confidenceText = document.getElementById("confidenceText");
     const confidenceFill = document.getElementById("confidenceFill");
+    const pendingText = document.getElementById("pendingText");
+    const leftFill = document.getElementById("leftFill");
+    const rightFill = document.getElementById("rightFill");
 
     const stepEls = [
       document.getElementById("step0"),
@@ -424,27 +504,59 @@
     let cameraStarted = false;
     let count = 0;
 
-    // Motion stages:
-    // 0 = wait for right hand up
-    // 1 = wait for left hand up
-    // After counting, the app waits briefly before accepting another rep.
-    let stage = 0;
-
-    let lastStageChange = 0;
+    let pendingArm = null;
+    let pendingTime = 0;
     let lastCountTime = 0;
-    const minStageGapMs = 120;
-    const countCooldownMs = 650;
-    const sequenceTimeoutMs = 1800;
-    const lostPoseResetMs = 1500;
     let lastGoodPoseTime = 0;
 
-    // MediaPipe landmark indexes.
+    const maxPairGapMs = 900;
+    const minPairGapMs = 40;
+    const countCooldownMs = 110;
+    const lostPoseResetMs = 1500;
+
     const LEFT_SHOULDER = 11;
     const RIGHT_SHOULDER = 12;
     const LEFT_ELBOW = 13;
     const RIGHT_ELBOW = 14;
     const LEFT_WRIST = 15;
     const RIGHT_WRIST = 16;
+
+    const armState = {
+      left: makeArmState(),
+      right: makeArmState()
+    };
+
+    let audioContext = null;
+
+    function makeArmState() {
+      return {
+        smoothScore: null,
+        previousScore: null,
+        velocity: 0,
+        seenLow: false,
+        valley: 0,
+        lastHitTime: 0
+      };
+    }
+
+    function resetArmState() {
+      armState.left = makeArmState();
+      armState.right = makeArmState();
+    }
+
+    function getTuning() {
+      const sensitivity = Number(sensitivitySlider.value);
+
+      return {
+        // Higher sensitivity lowers the thresholds.
+        upThreshold: 0.42 - sensitivity * 0.024,
+        downThreshold: 0.15 - sensitivity * 0.006,
+        amplitudeThreshold: 0.26 - sensitivity * 0.014,
+        velocityThreshold: 0.035 - sensitivity * 0.0018,
+        armCooldownMs: 170 - sensitivity * 7,
+        smoothAlpha: 0.62
+      };
+    }
 
     async function createPoseLandmarker() {
       const vision = await FilesetResolver.forVisionTasks(
@@ -459,8 +571,8 @@
         },
         runningMode: "VIDEO",
         numPoses: 1,
-        minPoseDetectionConfidence: 0.55,
-        minTrackingConfidence: 0.55
+        minPoseDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
       });
 
       drawingUtils = new DrawingUtils(ctx);
@@ -489,7 +601,7 @@
         cameraStarted = true;
         placeholder.style.display = "none";
         startButton.textContent = "Camera On";
-        statusText.textContent = "Ready. Raise your right hand.";
+        statusText.textContent = "Ready. Pump one arm, then the other.";
 
         video.addEventListener("loadeddata", predictWebcam, { once: true });
       } catch (error) {
@@ -502,10 +614,14 @@
 
     function resetCounter() {
       count = 0;
-      stage = 0;
+      pendingArm = null;
+      pendingTime = 0;
+      lastCountTime = 0;
+      resetArmState();
       countNumber.textContent = "0";
-      statusText.textContent = cameraStarted ? "Reset. Raise your right hand." : "Waiting to start.";
-      updateSteps();
+      pendingText.textContent = "None";
+      statusText.textContent = cameraStarted ? "Reset. Pump one arm, then the other." : "Waiting to start.";
+      updateSteps("start");
       playTone(330, 0.08);
     }
 
@@ -514,6 +630,10 @@
       if (typeof point.visibility === "number") return point.visibility;
       if (typeof point.presence === "number") return point.presence;
       return 1;
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
     }
 
     function averageConfidence(points) {
@@ -537,61 +657,125 @@
     }
 
     function isVisibleEnough(...points) {
-      return points.every(point => getVisibility(point) >= 0.45);
+      return points.every(point => getVisibility(point) >= 0.38);
     }
 
-    function armIsUp(wrist, elbow, shoulder) {
-      if (!isVisibleEnough(wrist, elbow, shoulder)) return false;
-
-      const armLength = Math.abs(wrist.y - shoulder.y) + Math.abs(wrist.x - shoulder.x);
-      const margin = Math.max(0.025, armLength * 0.04);
-
-      // More forgiving than V2:
-      // wrist only needs to be above the elbow, not clearly above the shoulder.
-      return wrist.y < elbow.y - margin;
+    function updateArmMeter(side, score) {
+      const percent = Math.max(0, Math.min(100, Math.round((score + 0.15) * 115)));
+      if (side === "left") leftFill.style.width = `${percent}%`;
+      if (side === "right") rightFill.style.width = `${percent}%`;
     }
 
-    function armIsNeutral(wrist, elbow, shoulder) {
-      if (!isVisibleEnough(wrist, elbow, shoulder)) return false;
+    function getArmScore(wrist, elbow, oppositeShoulder, sameShoulder) {
+      const shoulderWidth = Math.max(0.12, distance(oppositeShoulder, sameShoulder));
 
-      // Used only for soft reset, not required for counting.
-      return wrist.y > elbow.y - 0.02;
+      // Positive score means wrist is above elbow.
+      // Normalizing by shoulder width makes the threshold work at different distances from camera.
+      return (elbow.y - wrist.y) / shoulderWidth;
     }
 
-    function canAdvanceStage() {
-      return performance.now() - lastStageChange > minStageGapMs;
+    function detectArmHit(side, wrist, elbow, oppositeShoulder, sameShoulder, now) {
+      const tuning = getTuning();
+      const state = armState[side];
+
+      if (!isVisibleEnough(wrist, elbow, oppositeShoulder, sameShoulder)) {
+        return false;
+      }
+
+      const rawScore = getArmScore(wrist, elbow, oppositeShoulder, sameShoulder);
+
+      if (state.smoothScore === null) {
+        state.smoothScore = rawScore;
+        state.previousScore = rawScore;
+        state.valley = rawScore;
+        state.seenLow = rawScore < tuning.downThreshold;
+        updateArmMeter(side, rawScore);
+        return false;
+      }
+
+      state.previousScore = state.smoothScore;
+      state.smoothScore = tuning.smoothAlpha * rawScore + (1 - tuning.smoothAlpha) * state.smoothScore;
+      state.velocity = state.smoothScore - state.previousScore;
+
+      updateArmMeter(side, state.smoothScore);
+
+      if (state.smoothScore < tuning.downThreshold) {
+        state.seenLow = true;
+        state.valley = Math.min(state.valley, state.smoothScore);
+      }
+
+      const crossedUp = state.previousScore < tuning.upThreshold && state.smoothScore >= tuning.upThreshold;
+      const movedFastEnough = state.velocity >= tuning.velocityThreshold;
+      const movedFarEnough = state.smoothScore - state.valley >= tuning.amplitudeThreshold;
+      const cooledDown = now - state.lastHitTime >= tuning.armCooldownMs;
+
+      const hit = crossedUp && movedFastEnough && movedFarEnough && state.seenLow && cooledDown;
+
+      if (hit) {
+        state.lastHitTime = now;
+        state.seenLow = false;
+        state.valley = state.smoothScore;
+      }
+
+      return hit;
     }
 
-    function advanceStage(nextStage, message, toneFrequency = 520) {
-      if (!canAdvanceStage()) return;
-      stage = nextStage;
-      lastStageChange = performance.now();
-      statusText.textContent = message;
-      updateSteps();
-      playTone(toneFrequency, 0.055);
+    function updateSteps(mode) {
+      stepEls.forEach(step => step.classList.remove("active", "done"));
+
+      if (mode === "pending") {
+        stepEls[0].classList.add("done");
+        stepEls[1].classList.add("active");
+      } else if (mode === "counted") {
+        stepEls.forEach(step => step.classList.add("done"));
+        setTimeout(() => updateSteps("start"), 260);
+      } else {
+        stepEls[0].classList.add("active");
+      }
     }
 
-    function updateSteps() {
-      stepEls.forEach((el, index) => {
-        el.classList.remove("active", "done");
+    function registerHit(side, now) {
+      if (now - lastCountTime < countCooldownMs) return;
 
-        if (stage === 0) {
-          if (index === 0) el.classList.add("active");
-        } else if (stage === 1) {
-          if (index === 0) el.classList.add("done");
-          if (index === 1) el.classList.add("active");
-        }
-      });
-    }
+      if (pendingArm === null) {
+        pendingArm = side;
+        pendingTime = now;
+        pendingText.textContent = side === "left" ? "Left hit" : "Right hit";
+        statusText.textContent = `${capitalize(side)} arm strike detected. Hit the opposite arm.`;
+        updateSteps("pending");
+        playTone(440, 0.045);
+        return;
+      }
 
-    function flashCountedStep() {
-      stepEls[0].classList.add("done");
-      stepEls[1].classList.add("done");
-      stepEls[2].classList.add("done");
+      const gap = now - pendingTime;
 
-      setTimeout(() => {
-        updateSteps();
-      }, 350);
+      if (side === pendingArm) {
+        pendingArm = side;
+        pendingTime = now;
+        pendingText.textContent = side === "left" ? "Left hit" : "Right hit";
+        statusText.textContent = `Same arm again. Now hit the opposite arm.`;
+        playTone(380, 0.035);
+        return;
+      }
+
+      if (gap >= minPairGapMs && gap <= maxPairGapMs) {
+        count += 1;
+        countNumber.textContent = String(count);
+        lastCountTime = now;
+        pendingArm = null;
+        pendingTime = 0;
+        pendingText.textContent = "None";
+        statusText.textContent = "Rep counted. Keep alternating.";
+        updateSteps("counted");
+        playSuccessSound();
+        return;
+      }
+
+      pendingArm = side;
+      pendingTime = now;
+      pendingText.textContent = side === "left" ? "Left hit" : "Right hit";
+      statusText.textContent = "Too much delay. Started a new rep.";
+      updateSteps("pending");
     }
 
     function detectMotion(landmarks) {
@@ -606,45 +790,40 @@
       const confidence = averageConfidence(neededPoints);
       updateConfidence(confidence);
 
-      if (confidence < 0.45) {
-        if (performance.now() - lastGoodPoseTime > lostPoseResetMs) {
-          statusText.textContent = "Pose unclear. Move back so your shoulders and wrists are visible.";
+      const now = performance.now();
+
+      if (confidence < 0.38) {
+        if (now - lastGoodPoseTime > lostPoseResetMs) {
+          statusText.textContent = "Pose unclear. Move back so shoulders, elbows, and wrists are visible.";
         }
         return;
       }
 
-      lastGoodPoseTime = performance.now();
+      lastGoodPoseTime = now;
 
-      const rightUp = armIsUp(rightWrist, rightElbow, rightShoulder);
-      const leftUp = armIsUp(leftWrist, leftElbow, leftShoulder);
-      const rightNeutral = armIsNeutral(rightWrist, rightElbow, rightShoulder);
-      const leftNeutral = armIsNeutral(leftWrist, leftElbow, leftShoulder);
-      const now = performance.now();
+      if (pendingArm !== null && now - pendingTime > maxPairGapMs) {
+        pendingArm = null;
+        pendingTime = 0;
+        pendingText.textContent = "None";
+        statusText.textContent = "Ready. Pump one arm, then the other.";
+        updateSteps("start");
+      }
 
-      if (stage === 1 && now - lastStageChange > sequenceTimeoutMs) {
-        stage = 0;
-        statusText.textContent = "Sequence timed out. Try again: right hand, then left hand.";
-        updateSteps();
+      const leftHit = detectArmHit("left", leftWrist, leftElbow, rightShoulder, leftShoulder, now);
+      const rightHit = detectArmHit("right", rightWrist, rightElbow, leftShoulder, rightShoulder, now);
+
+      if (leftHit && rightHit) {
+        // Simultaneous strikes are ignored because they are not an alternating 6 7 motion.
+        statusText.textContent = "Both arms moved together. Alternate arms for a clean count.";
+        pendingArm = null;
+        pendingTime = 0;
+        pendingText.textContent = "None";
+        updateSteps("start");
         return;
       }
 
-      if (stage === 0 && rightUp && now - lastCountTime > countCooldownMs) {
-        advanceStage(1, "Right hand detected. Now raise your left hand.", 440);
-      } else if (stage === 1 && leftUp && canAdvanceStage()) {
-        count += 1;
-        countNumber.textContent = String(count);
-        stage = 0;
-        lastStageChange = now;
-        lastCountTime = now;
-        statusText.textContent = "Rep counted. Start again with your right hand.";
-        flashCountedStep();
-        playSuccessSound();
-      }
-
-      // Soft reset: if both hands return near normal position, get ready again.
-      if (stage === 1 && rightNeutral && leftNeutral && now - lastStageChange > 500) {
-        statusText.textContent = "Right hand detected. Raise your left hand when ready.";
-      }
+      if (leftHit) registerHit("left", now);
+      if (rightHit) registerHit("right", now);
     }
 
     async function predictWebcam() {
@@ -685,39 +864,53 @@
       requestAnimationFrame(predictWebcam);
     }
 
+    function capitalize(text) {
+      return text.charAt(0).toUpperCase() + text.slice(1);
+    }
+
+    function getAudioContext() {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return null;
+      if (!audioContext) audioContext = new AudioContext();
+      return audioContext;
+    }
+
     function playTone(frequency, durationSeconds) {
       if (!soundToggle.checked) return;
 
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContext) return;
+      const context = getAudioContext();
+      if (!context) return;
 
-      const audioContext = new AudioContext();
-      const oscillator = audioContext.createOscillator();
-      const gain = audioContext.createGain();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
 
       oscillator.type = "sine";
       oscillator.frequency.value = frequency;
 
-      gain.gain.setValueAtTime(0.001, audioContext.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.08, audioContext.currentTime + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + durationSeconds);
+      gain.gain.setValueAtTime(0.001, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.06, context.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + durationSeconds);
 
       oscillator.connect(gain);
-      gain.connect(audioContext.destination);
+      gain.connect(context.destination);
 
       oscillator.start();
-      oscillator.stop(audioContext.currentTime + durationSeconds);
+      oscillator.stop(context.currentTime + durationSeconds);
     }
 
     function playSuccessSound() {
       if (!soundToggle.checked) return;
-      playTone(660, 0.08);
-      setTimeout(() => playTone(880, 0.1), 90);
+      playTone(660, 0.06);
+      setTimeout(() => playTone(880, 0.08), 70);
     }
 
     startButton.addEventListener("click", startCamera);
     resetButton.addEventListener("click", resetCounter);
-    updateSteps();
+    sensitivitySlider.addEventListener("input", () => {
+      sensitivityText.textContent = sensitivitySlider.value;
+    });
+
+    updateSteps("start");
   </script>
 </body>
 </html>
