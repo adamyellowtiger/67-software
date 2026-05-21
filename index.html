@@ -593,9 +593,13 @@
     let fpsEstimate = 0;
     let lastFrameTimestamp = 0;
     let lastPredictionTimestamp = 0;
+    let confidenceCountArmed = true;
 
     const lostPoseResetMs = 1500;
     const maxEventLogItems = 8;
+    const mediumSensitivityValue = 6;
+    const confidenceRepThreshold = 0.75;
+    const confidenceRearmThreshold = 0.70;
 
     const LEFT_SHOULDER = 11;
     const RIGHT_SHOULDER = 12;
@@ -656,6 +660,7 @@
       const sensitivity = Number(sensitivitySlider.value);
 
       return {
+        sensitivity,
         high: clamp(0.30 - sensitivity * 0.018, 0.12, 0.28),
         low: clamp(0.15 - sensitivity * 0.009, 0.02, 0.15),
         ampMin: clamp(0.19 - sensitivity * 0.009, 0.08, 0.22),
@@ -739,6 +744,7 @@
       count = 0;
       counterState = makeCounterState();
       eventItems = [];
+      confidenceCountArmed = true;
       resetArmState();
       countNumber.textContent = "0";
       pendingText.textContent = "None";
@@ -1058,6 +1064,34 @@
       }
     }
 
+    function isMediumSensitivity(tuning = getTuning()) {
+      return tuning.sensitivity === mediumSensitivityValue;
+    }
+
+    function handleMediumConfidenceRep(confidence, timestampMs) {
+      if (confidence < confidenceRearmThreshold) {
+        confidenceCountArmed = true;
+        if (confidence >= 0.38) {
+          pendingText.textContent = "Ready";
+          statusText.textContent = "Medium sensitivity: confidence rearmed.";
+        }
+        return;
+      }
+
+      if (confidence <= confidenceRepThreshold || !confidenceCountArmed) {
+        return;
+      }
+
+      confidenceCountArmed = false;
+      count += 1;
+      countNumber.textContent = String(count);
+      pendingText.textContent = "Confidence counted";
+      statusText.textContent = "Medium sensitivity: pose confidence over 75%, rep counted.";
+      addEventItem(`${formatMs(timestampMs)} confidence`, `${Math.round(confidence * 100)}% counted`);
+      updateSteps("counted");
+      playSuccessSound();
+    }
+
     function median(values) {
       if (!values.length) return null;
       const sorted = [...values].sort((a, b) => a - b);
@@ -1215,8 +1249,10 @@
       const confidence = averageConfidence(neededPoints);
       updateConfidence(confidence);
       updateCameraText(timestampMs);
+      const tuning = getTuning();
 
       if (confidence < 0.38) {
+        confidenceCountArmed = true;
         if (timestampMs - lastGoodPoseTime > lostPoseResetMs) {
           statusText.textContent = "Pose unclear. Move back so shoulders, elbows, and wrists are visible.";
         }
@@ -1224,8 +1260,13 @@
       }
 
       lastGoodPoseTime = timestampMs;
+
+      if (isMediumSensitivity(tuning)) {
+        handleMediumConfidenceRep(confidence, timestampMs);
+        return;
+      }
+
       const frame = getTorsoFrame(landmarks);
-      const tuning = getTuning();
 
       const candidates = [
         updateArmState(armState.left, getArmSample("left", frame, timestampMs), tuning),
@@ -1342,6 +1383,7 @@
     resetButton.addEventListener("click", resetCounter);
     sensitivitySlider.addEventListener("input", () => {
       sensitivityText.textContent = sensitivitySlider.value;
+      confidenceCountArmed = true;
       updateCadenceText();
     });
 
