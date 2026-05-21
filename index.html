@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>6 7 Motion Counter V3</title>
+  <title>6 7 Motion Counter V4</title>
 
   <style>
     :root {
@@ -377,9 +377,9 @@
 <body>
   <main class="app">
     <header>
-      <h1>6 7 Motion Counter V3</h1>
+      <h1>6 7 Motion Counter V4</h1>
       <p class="subtitle">
-        Movement-based detection: the counter only increases when it sees a real upward arm strike, then an opposite-arm strike. Holding your hands up should not keep adding points.
+        Fast-mode detection: the counter looks for real low-to-high wrist movement, then the opposite arm. It is tuned to catch quicker reps while ignoring hands that are just held up.
       </p>
     </header>
 
@@ -509,9 +509,9 @@
     let lastCountTime = 0;
     let lastGoodPoseTime = 0;
 
-    const maxPairGapMs = 900;
-    const minPairGapMs = 40;
-    const countCooldownMs = 110;
+    const maxPairGapMs = 750;
+    const minPairGapMs = 0;
+    const countCooldownMs = 70;
     const lostPoseResetMs = 1500;
 
     const LEFT_SHOULDER = 11;
@@ -548,13 +548,13 @@
       const sensitivity = Number(sensitivitySlider.value);
 
       return {
-        // Higher sensitivity lowers the thresholds.
-        upThreshold: 0.42 - sensitivity * 0.024,
-        downThreshold: 0.15 - sensitivity * 0.006,
-        amplitudeThreshold: 0.26 - sensitivity * 0.014,
-        velocityThreshold: 0.035 - sensitivity * 0.0018,
-        armCooldownMs: 170 - sensitivity * 7,
-        smoothAlpha: 0.62
+        // V4 is more responsive than V3.
+        // It does not require a strong velocity spike, because fast webcam motion is often blurred/skipped.
+        upThreshold: 0.34 - sensitivity * 0.022,
+        downThreshold: 0.08 - sensitivity * 0.009,
+        amplitudeThreshold: 0.22 - sensitivity * 0.011,
+        armCooldownMs: Math.max(55, 125 - sensitivity * 7),
+        smoothAlpha: 0.78
       };
     }
 
@@ -590,8 +590,9 @@
 
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            width: { ideal: 960 },
-            height: { ideal: 720 },
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            frameRate: { ideal: 60, max: 60 },
             facingMode: "user"
           },
           audio: false
@@ -603,7 +604,7 @@
         startButton.textContent = "Camera On";
         statusText.textContent = "Ready. Pump one arm, then the other.";
 
-        video.addEventListener("loadeddata", predictWebcam, { once: true });
+        video.addEventListener("loadeddata", scheduleNextFrame, { once: true });
       } catch (error) {
         console.error(error);
         startButton.disabled = false;
@@ -705,11 +706,11 @@
       }
 
       const crossedUp = state.previousScore < tuning.upThreshold && state.smoothScore >= tuning.upThreshold;
-      const movedFastEnough = state.velocity >= tuning.velocityThreshold;
+      const jumpedHigh = state.smoothScore >= tuning.upThreshold && state.smoothScore > state.previousScore;
       const movedFarEnough = state.smoothScore - state.valley >= tuning.amplitudeThreshold;
       const cooledDown = now - state.lastHitTime >= tuning.armCooldownMs;
 
-      const hit = crossedUp && movedFastEnough && movedFarEnough && state.seenLow && cooledDown;
+      const hit = (crossedUp || jumpedHigh) && movedFarEnough && state.seenLow && cooledDown;
 
       if (hit) {
         state.lastHitTime = now;
@@ -813,12 +814,19 @@
       const rightHit = detectArmHit("right", rightWrist, rightElbow, leftShoulder, rightShoulder, now);
 
       if (leftHit && rightHit) {
-        // Simultaneous strikes are ignored because they are not an alternating 6 7 motion.
-        statusText.textContent = "Both arms moved together. Alternate arms for a clean count.";
-        pendingArm = null;
-        pendingTime = 0;
-        pendingText.textContent = "None";
-        updateSteps("start");
+        // V4: If the webcam misses the order because the movement is too fast,
+        // count one fast pair instead of throwing it away.
+        if (now - lastCountTime >= countCooldownMs) {
+          count += 1;
+          countNumber.textContent = String(count);
+          lastCountTime = now;
+          pendingArm = null;
+          pendingTime = 0;
+          pendingText.textContent = "Fast pair";
+          statusText.textContent = "Fast pair counted. Keep going.";
+          updateSteps("counted");
+          playSuccessSound();
+        }
         return;
       }
 
@@ -826,9 +834,17 @@
       if (rightHit) registerHit("right", now);
     }
 
+    function scheduleNextFrame() {
+      if (video.requestVideoFrameCallback) {
+        video.requestVideoFrameCallback(() => predictWebcam());
+      } else {
+        requestAnimationFrame(predictWebcam);
+      }
+    }
+
     async function predictWebcam() {
       if (!poseLandmarker || video.readyState < 2) {
-        requestAnimationFrame(predictWebcam);
+        scheduleNextFrame();
         return;
       }
 
@@ -861,7 +877,7 @@
         statusText.textContent = "No body detected. Step back into view.";
       }
 
-      requestAnimationFrame(predictWebcam);
+      scheduleNextFrame();
     }
 
     function capitalize(text) {
